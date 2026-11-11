@@ -12,12 +12,13 @@ submit → persist → dispatch → claim → execute → retry → dead-letter 
 | Block | Scope | Status |
 |---|---|---|
 | 1 | Foundation (Postgres 16, Redis 7, Compose stack) | ✅ |
-| 1 | Schema (8 tables, CHECK constraints, partial indexes, dev seed) | ✅ |
+| 2 | Schema (8 tables, CHECK constraints, partial indexes, dev seed) | ✅ |
 | 3a | Submission API (auth, idempotency, transactional outbox) | ✅ |
 | 3b | Worker (atomic claim, attempt history, graceful drain) | ✅ |
 | 3c | Retries / DLQ (classification, backoff, dead-letter entries) | ✅ |
 | 3d | Dispatch (outbox relay + Redis Streams + polling fallback) | ✅ |
-| 3 | Dashboard (Overview / Jobs / Detail) + unit tests + README | ✅ |
+| 4 | Dashboard (Overview / Jobs / Detail) + unit tests + README | ✅ |
+| 5 | Lease reaper + renewal + worker crash recovery (INV-09) | ✅ |
 
 ---
 
