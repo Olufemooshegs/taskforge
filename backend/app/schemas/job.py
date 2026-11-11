@@ -67,8 +67,23 @@ class JobSummary(BaseModel):
     attempts: int
     max_attempts: int
     scheduled_at: datetime
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class AttemptSummary(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: UUID
+    attempt_number: int
+    status: str
+    started_at: datetime
+    finished_at: datetime | None = None
+    duration_ms: int | None = None
+    error_type: str | None = None
+    error_message: str | None = None
+    error_traceback: str | None = None
 
 
 class JobDetail(JobSummary):
@@ -76,10 +91,9 @@ class JobDetail(JobSummary):
     queue_id: UUID
     payload: dict[str, Any]
     result: dict[str, Any] | None
-    started_at: datetime | None
-    completed_at: datetime | None
     last_error: str | None
     timeout_seconds: int
+    attempt_records: list[AttemptSummary] = []
 
 
 class JobListResponse(BaseModel):

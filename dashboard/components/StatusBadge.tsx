@@ -1,19 +1,38 @@
 const styles: Record<string, string> = {
-  queued: 'bg-slate-100 text-slate-700',
-  running: 'bg-blue-100 text-blue-700',
-  scheduled: 'bg-amber-100 text-amber-700',
-  retry_scheduled: 'bg-amber-100 text-amber-700',
-  succeeded: 'bg-green-100 text-green-700',
-  failed: 'bg-red-100 text-red-700',
-  dead_lettered: 'bg-rose-100 text-rose-800',
-  cancelled: 'bg-slate-200 text-slate-600',
+  queued: 'bg-slate-800/50 text-muted border-border',
+  running: 'bg-blue-500/10 text-info border-info/30',
+  scheduled: 'bg-amber-500/10 text-warn border-warn/30',
+  retry_scheduled: 'bg-amber-500/10 text-warn border-warn/30',
+  succeeded: 'bg-green-500/10 text-accent border-accent/30',
+  failed: 'bg-red-500/10 text-danger border-danger/30',
+  dead_lettered: 'bg-red-500/15 text-danger border-danger/40',
+  cancelled: 'bg-slate-800/50 text-dim border-border',
 };
 
-export default function StatusBadge({ status }: { status: string }) {
-  const cls = styles[status] || 'bg-slate-100 text-slate-700';
+const labels: Record<string, string> = {
+  dead_lettered: 'dead',
+  retry_scheduled: 'retry',
+  succeeded: 'ok',
+};
+
+export default function StatusBadge({ status, dot = true }: { status: string; dot?: boolean }) {
+  const cls = styles[status] || 'bg-slate-800/50 text-muted border-border';
+  const dotCls: Record<string, string> = {
+    queued: 'bg-muted',
+    running: 'bg-info animate-pulse-dot',
+    scheduled: 'bg-warn',
+    retry_scheduled: 'bg-warn animate-pulse-dot',
+    succeeded: 'bg-accent',
+    failed: 'bg-danger',
+    dead_lettered: 'bg-danger',
+    cancelled: 'bg-dim',
+  };
   return (
-    <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${cls}`}>
-      {status}
+    <span
+      className={`inline-flex items-center gap-1.5 px-1.5 py-0.5 rounded border text-[11px] font-mono lowercase ${cls}`}
+    >
+      {dot && <span className={`w-1 h-1 rounded-full ${dotCls[status] || 'bg-muted'}`} />}
+      {labels[status] || status}
     </span>
   );
 }

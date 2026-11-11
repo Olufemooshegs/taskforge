@@ -107,4 +107,51 @@ async def get_overview(
         for r in failure_rows
     ]
 
-    return OverviewStats(jobs=jobs, workers=workers, queues=queues, recent_failures=recent)
+    # Status vein: last 80 jobs, chronological (oldest -> newest)
+    vein_rows = (
+        await session.execute(
+            text(
+                """
+                SELECT status FROM jobs
+                WHERE tenant_id = :tid
+                ORDER BY created_at DESC
+                LIMIT 80
+                """
+            ),
+            {"tid": tenant_id},
+        )
+    ).all()
+    status_vein = [r[0] for r in reversed(vein_rows)]
+
+    # Throughput: jobs created per second for the last 60 seconds
+    tp_rows = (
+        await session.execute(
+            text(
+                """
+                SELECT
+                    EXTRACT(EPOCH FROM date_trunc('second', created_at))::bigint AS sec,
+                    COUNT(*) AS n
+                FROM jobs
+                WHERE tenant_id = :tid
+                  AND created_at > now() - interval '60 seconds'
+                GROUP BY 1
+                ORDER BY 1
+                """
+            ),
+            {"tid": tenant_id},
+        )
+    ).all()
+    tp_map = {int(r.sec): int(r.n) for r in tp_rows}
+    # Build a 60-sample array aligned to "now - 59s .. now"
+    now_sec_row = (await session.execute(text("SELECT EXTRACT(EPOCH FROM now())::bigint"))).scalar()
+    now_sec = int(now_sec_row)
+    throughput = [tp_map.get(now_sec - 59 + i, 0) for i in range(60)]
+
+    return OverviewStats(
+        jobs=jobs,
+        workers=workers,
+        queues=queues,
+        recent_failures=recent,
+        status_vein=status_vein,
+        throughput_60s=throughput,
+    )

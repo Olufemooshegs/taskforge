@@ -91,3 +91,13 @@ async def list_jobs(
         rows = rows[:limit]
 
     return [(r[0], r[1]) for r in rows], next_cursor
+
+
+async def get_attempts(session: AsyncSession, job_id: UUID) -> list:
+    from app.models.job_attempt import JobAttempt
+    result = await session.execute(
+        select(JobAttempt)
+        .where(JobAttempt.job_id == job_id)
+        .order_by(JobAttempt.attempt_number.desc())
+    )
+    return list(result.scalars().all())

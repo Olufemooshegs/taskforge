@@ -38,7 +38,8 @@ def _submit_response(job: Job, queue_name: str) -> JobSubmitResponse:
     )
 
 
-def _job_to_detail(job: Job, queue_name: str) -> JobDetail:
+def _job_to_detail(job: Job, queue_name: str, attempt_records=None) -> JobDetail:
+    from app.schemas.job import AttemptSummary
     return JobDetail(
         id=job.id,
         tenant_id=job.tenant_id,
@@ -58,6 +59,7 @@ def _job_to_detail(job: Job, queue_name: str) -> JobDetail:
         timeout_seconds=job.timeout_seconds,
         created_at=job.created_at,
         updated_at=job.updated_at,
+        attempt_records=[AttemptSummary.model_validate(a) for a in (attempt_records or [])],
     )
 
 
@@ -71,6 +73,8 @@ def _job_to_summary(job: Job, queue_name: str) -> JobSummary:
         attempts=job.attempts,
         max_attempts=job.max_attempts,
         scheduled_at=job.scheduled_at,
+        started_at=job.started_at,
+        completed_at=job.completed_at,
         created_at=job.created_at,
         updated_at=job.updated_at,
     )
@@ -188,7 +192,9 @@ async def get_job(
     row = await job_repository.get_by_id(session, tenant_id, job_id)
     if row is None:
         raise JobNotFoundError(f"Job {job_id} not found")
-    return _job_to_detail(*row)
+    job, queue_name = row
+    attempts = await job_repository.get_attempts(session, job.id)
+    return _job_to_detail(job, queue_name, attempts)
 
 
 async def list_jobs(
@@ -241,4 +247,5 @@ async def cancel_job(
     job.status = JobStatus.CANCELLED.value
     job.updated_at = datetime.now(UTC)
     await session.commit()
-    return _job_to_detail(job, queue_name)
+    attempts = await job_repository.get_attempts(session, job.id)
+    return _job_to_detail(job, queue_name, attempts)

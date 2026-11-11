@@ -19,7 +19,7 @@ class JobCounts(BaseModel):
 class WorkerCounts(BaseModel):
     total: int = 0
     active: int = 0
-    live: int = 0  # heartbeat < 60s
+    live: int = 0
 
 
 class QueueStat(BaseModel):
@@ -45,3 +45,5 @@ class OverviewStats(BaseModel):
     workers: WorkerCounts
     queues: list[QueueStat]
     recent_failures: list[RecentFailure]
+    status_vein: list[str] = []      # last 80 statuses, oldest -> newest
+    throughput_60s: list[int] = []   # jobs created per second, oldest -> newest

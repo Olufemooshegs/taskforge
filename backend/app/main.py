@@ -5,6 +5,7 @@ from fastapi import FastAPI, Request
 
 from app.api.v1.health import router as health_router
 from app.api.v1.dead_letters import router as dead_letters_router
+from app.api.v1.events import router as events_router
 from app.api.v1.jobs import router as jobs_router
 from app.api.v1.queues import router as queues_router
 from app.api.v1.stats import router as stats_router
@@ -41,6 +42,7 @@ def create_app() -> FastAPI:
     app.include_router(queues_router, prefix="/api/v1")
     app.include_router(dead_letters_router, prefix="/api/v1")
     app.include_router(stats_router, prefix="/api/v1")
+    app.include_router(events_router, prefix="/api/v1")
 
     _ = get_settings()  # keep import side-effect for env validation
     return app
