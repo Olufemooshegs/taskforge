@@ -64,6 +64,7 @@ services:
       - ./backend:/app
     command: ["python", "-m", "app.workers"]
     stop_grace_period: 60s
+    restart: on-failure:5
 
   dashboard:
     build:

@@ -18,6 +18,8 @@ from app.repositories import queue_repository
 from app.workers import claim_manager, handlers  # noqa: F401 -- registers handlers
 from app.workers.ack_manager import record_failure, record_success
 from app.workers.executor import execute
+from app.workers.lease_manager import renew_lease
+from app.workers.recovery import recovery_loop
 from app.workers.registry import registry
 
 log = logging.getLogger("taskforge.worker")
@@ -164,7 +166,6 @@ class WorkerRuntime:
         if self.wake_event.is_set():
             self.wake_event.clear()
             return
-
         stop_task = asyncio.create_task(self.stop_event.wait())
         wake_task = asyncio.create_task(self.wake_event.wait())
         try:
@@ -184,7 +185,36 @@ class WorkerRuntime:
         if self.wake_event.is_set():
             self.wake_event.clear()
 
+    async def _renew_loop(self, claim: claim_manager.ClaimedJob, stop: asyncio.Event) -> None:
+        while not stop.is_set():
+            try:
+                async with SessionFactory() as session:
+                    ok = await renew_lease(
+                        session,
+                        job_id=claim.job_id,
+                        worker_id=self.worker_id,
+                        lease_token=claim.lease_token,
+                        lease_duration_seconds=self.settings.lease_duration_seconds,
+                    )
+                    if not ok:
+                        log.warning(
+                            "job %s: lease no longer ours, stopping renewal",
+                            claim.job_id,
+                        )
+                        return
+            except Exception:
+                log.exception("lease renewal failed for %s", claim.job_id)
+            try:
+                await asyncio.wait_for(
+                    stop.wait(),
+                    timeout=self.settings.heartbeat_interval_seconds,
+                )
+            except asyncio.TimeoutError:
+                pass
+
     async def _run_claimed(self, claim: claim_manager.ClaimedJob) -> None:
+        stop_renew = asyncio.Event()
+        renewer = asyncio.create_task(self._renew_loop(claim, stop_renew))
         try:
             outcome = await execute(claim)
             async with SessionFactory() as session:
@@ -221,6 +251,12 @@ class WorkerRuntime:
                 )
         except Exception:
             log.exception("unhandled error running job %s", claim.job_id)
+        finally:
+            stop_renew.set()
+            try:
+                await asyncio.wait_for(renewer, timeout=2.0)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                renewer.cancel()
 
     async def run(self) -> None:
         await self.startup()
@@ -236,6 +272,13 @@ class WorkerRuntime:
             asyncio.create_task(self.scheduler_loop()),
             asyncio.create_task(relay_loop(self.stop_event)),
             asyncio.create_task(consumer.run()),
+            asyncio.create_task(
+                recovery_loop(
+                    self.stop_event,
+                    self.queue_ids,
+                    self.settings.recovery_scan_interval_seconds,
+                )
+            ),
         ]
 
         log.info("worker %s entering main loop", self.worker_id)
@@ -246,23 +289,18 @@ class WorkerRuntime:
                         self.in_flight, return_when=asyncio.FIRST_COMPLETED
                     )
                     continue
-
                 try:
                     claim = await self._claim_one()
                 except Exception:
                     log.exception("claim cycle failed")
                     await asyncio.sleep(2)
                     continue
-
                 if claim is None:
                     await self._wait_or_wake(timeout=1.0)
                     continue
-
                 log.info(
                     "claimed job=%s attempt=%d task=%s",
-                    claim.job_id,
-                    claim.attempt_number,
-                    claim.task_name,
+                    claim.job_id, claim.attempt_number, claim.task_name,
                 )
                 task = asyncio.create_task(self._run_claimed(claim))
                 self.in_flight.add(task)

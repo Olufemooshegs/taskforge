@@ -1,10 +1,14 @@
+"""Demo handlers.
+
+Real applications register their own via @registry.task(name=...).
+"""
+
 import asyncio
+import os
 from typing import Any
 
 from app.domain.policies.retry import PermanentError
 from app.workers.registry import registry
-
-_fail_counts: dict[str, int] = {}
 
 
 @registry.task(name="echo")
@@ -39,9 +43,21 @@ async def always_fail_permanent(payload: dict[str, Any]) -> dict[str, Any]:
 async def fail_then_succeed(payload: dict[str, Any]) -> dict[str, Any]:
     key = str(payload.get("key", "default"))
     n = int(payload.get("fail_times", 2))
-    _fail_counts[key] = _fail_counts.get(key, 0) + 1
-    if _fail_counts[key] <= n:
+    fail_counts[key] = fail_counts.get(key, 0) + 1
+    if fail_counts[key] <= n:
         raise RuntimeError(
-            f"transient failure {_fail_counts[key]}/{n} for key={key}"
+            f"transient failure {fail_counts[key]}/{n} for key={key}"
         )
-    return {"succeeded_on_attempt": _fail_counts[key], "key": key}
+    return {"succeeded_on_attempt": fail_counts[key], "key": key}
+
+
+@registry.task(name="crash_self")
+async def crash_self(payload: dict[str, Any]) -> dict[str, Any]:
+    """Hard-kills the worker process (os._exit) after `seconds` seconds.
+
+    Used to test the lease reaper. On recovery the job is retried; if
+    max_attempts is exhausted it dead-letters with `worker_lost` reason.
+    """
+    seconds = float(payload.get("seconds", 2))
+    await asyncio.sleep(seconds)
+    os._exit(1)

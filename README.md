@@ -12,12 +12,12 @@ submit → persist → dispatch → claim → execute → retry → dead-letter 
 | Block | Scope | Status |
 |---|---|---|
 | 1 | Foundation (Postgres 16, Redis 7, Compose stack) | ✅ |
-| 2 | Schema (8 tables, CHECK constraints, partial indexes, dev seed) | ✅ |
+| 1 | Schema (8 tables, CHECK constraints, partial indexes, dev seed) | ✅ |
 | 3a | Submission API (auth, idempotency, transactional outbox) | ✅ |
 | 3b | Worker (atomic claim, attempt history, graceful drain) | ✅ |
 | 3c | Retries / DLQ (classification, backoff, dead-letter entries) | ✅ |
 | 3d | Dispatch (outbox relay + Redis Streams + polling fallback) | ✅ |
-| 4 | Dashboard (Overview / Jobs / Detail) + unit tests + README | ✅ |
+| 3 | Dashboard (Overview / Jobs / Detail) + unit tests + README | ✅ |
 
 ---
 
@@ -327,7 +327,7 @@ sequenceDiagram
 | INV-06 Attempt + state change transactional | `record_success/failure` in one commit |
 | INV-07 Terminal jobs not claimable | Claim SQL filters `status='queued'` |
 | INV-08 Duplicate dispatch no dup ownership | Postgres `status='queued'` predicate |
-| INV-09 Expired leases recovered | ⚠️ **Not yet implemented** — see known limitations |
+| INV-09 Expired leases recovered | ✅ `workers/recovery.py` reaper + `workers/lease_manager.py` renewal |
 | INV-10 Redis outage does not destroy committed jobs | `broker/relay.py` releases locks on connection loss |
 | INV-11 Idempotency dedupes | Partial unique index `(tenant_id, idempotency_key)` + fingerprint check |
 | INV-12 Every query tenant-scoped | `core/security.py::require_tenant` + every repository `WHERE` |
@@ -446,8 +446,8 @@ Four unit test files in `backend/tests/unit/`:
 
 | File | Tests | What it proves |
 |---|---|---|
-| `test_retry_policy.py` | 5 | Backoff determinism, max-delay cap, jitter bounds, defaults, partial override |
-| `test_idempotency.py` | 6 | Fingerprint determinism, dict-order invariance, SHA-256 format, uniqueness per payload/queue/task |
+| `test_retry_policy.py` | 4 | Backoff determinism, max-delay cap, jitter bounds, defaults, partial override |
+| `test_idempotency.py` | 5 | Fingerprint determinism, dict-order invariance, SHA-256 format, uniqueness per payload/queue/task |
 | `test_error_classification.py` | 5 | Retryable vs permanent via real executor: generic `Exception` retryable, `PermanentError` not, unknown task not, timeout retryable, success writes result |
 | `test_payload_validation.py` | 15 | Task-name regex (5 valid + 6 invalid), priority enum, timeout bounds, retry policy bounds |
 
@@ -514,6 +514,10 @@ All configuration via environment variables. See `.env.example` for the full lis
 - ✅ Dead-letter on exhaustion with `dead_letter_entries` row
 - ✅ Graceful worker shutdown (`stop_grace_period: 60s`, verified with 30s handler)
 - ✅ Worker heartbeats (20s)
+- ✅ Lease renewal — periodic `locked_until` extension while handler runs
+- ✅ Lease reaper — recovers jobs with expired leases (`worker_lost` attempt + retry or DL)
+- ✅ Worker crash recovery (verified end-to-end via `crash_self` handler)
+- ✅ Docker `restart: on-failure:5` on worker service
 
 **Dispatch & reliability**
 - ✅ Outbox relay (SKIP LOCKED, batch publish, lock release on Redis loss — INV-10)
@@ -534,20 +538,19 @@ All configuration via environment variables. See `.env.example` for the full lis
 
 | # | Item | Why |
 |---|---|---|
-| 1 | **Lease reaper / worker-crash recovery** | Closes INV-09. Currently if a worker dies mid-execution, its job sits `running` until `locked_until` passes — no automatic recovery loop. **Top priority post-MVP.** |
 | 2 | **Automated pytest versions of integration/concurrency/failure tests** | Closes §17 gap for the three categories not in pytest |
-| 3 | **Manual retry from `failed` state** + **replay from dead-letter** | §11.2 endpoints `POST /jobs/{id}/retry` and `POST /dead-letters/{id}/replay` are in the spec; only inspection exists today |
+| 2 | **Manual retry from `failed` state** + **replay from dead-letter** | §11.2 endpoints `POST /jobs/{id}/retry` and `POST /dead-letters/{id}/replay` are in the spec; only inspection exists today |
 | 4 | **Dead-letter dashboard page** | API exists, page doesn't |
 | 5 | **Prometheus `/metrics` + Grafana dashboard** | §15 metrics list |
 | 6 | **Weighted fair scheduling** | §10 (currently strict priority) |
-| 7 | **SSE live updates in dashboard** | Replaces polling |
-| 8 | **Python SDK package** | `sdk/` folder scaffolded, not published |
-| 9 | **k6 benchmark report** | §15 |
-| 10 | **Rate limiting** | §14 |
-| 11 | **Queue-level `max_concurrency` enforcement** | Column exists, worker doesn't honor per-queue caps |
-| 12 | **Multi-tenant isolation tests** | Single tenant seeded; enforcement untested adversarially |
-| 13 | **Worker heartbeat staleness monitoring** | Not surfaced anywhere |
-| 14 | **`XAUTOCLAIM` for pending dispatch messages** | §3.3 explicitly deferred |
+| 6 | **SSE live updates in dashboard** | Replaces polling |
+| 7 | **Python SDK package** | `sdk/` folder scaffolded, not published |
+| 8 | **k6 benchmark report** | §15 |
+| 9 | **Rate limiting** | §14 |
+| 10 | **Queue-level `max_concurrency` enforcement** | Column exists, worker doesn't honor per-queue caps |
+| 11 | **Multi-tenant isolation tests** | Single tenant seeded; enforcement untested adversarially |
+| 12 | **Worker heartbeat staleness monitoring** | Not surfaced anywhere |
+| 13 | **`XAUTOCLAIM` for pending dispatch messages** | §3.3 explicitly deferred |
 
 ---
 
@@ -557,27 +560,26 @@ Documented honestly per spec §0 and §20.
 
 1. **Strict priority, not weighted fairness.** Spec §10 target is weighted fair scheduling (high:6 / normal:3 / low:1). MVP uses strict priority ordering — a high-priority flood starves low-priority work. Explicitly allowed as known limitation.
 
-2. **No lease reaper (INV-09).** If a worker crashes mid-execution, its job stays `running` until manual intervention. The `locked_until` and `idx_jobs_expired_leases` index exist; the recovery loop doesn't. **Top post-MVP item.**
 
-3. **`failed` state is defined but never written.** Failure paths always route to `retry_scheduled` or `dead_lettered`. `POST /jobs/{id}/retry` (which would target `failed → queued`) is a planned endpoint.
+2. **`failed` state is defined but never written.** Failure paths always route to `retry_scheduled` or `dead_lettered`. `POST /jobs/{id}/retry` (which would target `failed → queued`) is a planned endpoint.
 
-4. **`XAUTOCLAIM` not implemented.** Spec §3.3 allows deferring. Consumer acks immediately after waking claim loop; if the wake is lost, PostgreSQL polling still picks up the job within 1s.
+3. **`XAUTOCLAIM` not implemented.** Spec §3.3 allows deferring. Consumer acks immediately after waking claim loop; if the wake is lost, PostgreSQL polling still picks up the job within 1s.
 
-5. **Integration/concurrency/failure tests are shell scripts, not pytest.** All categories in §17 were manually verified during development. Automated versions are P1.
+4. **Integration/concurrency/failure tests are shell scripts, not pytest.** All categories in §17 were manually verified during development. Automated versions are P1.
 
-6. **Dead-letter replay not wired.** `dead_letter_entries` rows exist and are queryable via `/api/v1/dead-letters`. `POST /dead-letters/{id}/replay` is planned.
+5. **Dead-letter replay not wired.** `dead_letter_entries` rows exist and are queryable via `/api/v1/dead-letters`. `POST /dead-letters/{id}/replay` is planned.
 
-7. **Dashboard is polling, not SSE.** 2-3s interval. Spec §13 explicitly allows this for MVP.
+6. **Dashboard is polling, not SSE.** 2-3s interval. Spec §13 explicitly allows this for MVP.
 
-8. **`next@14.2.18` CVE (2025-12-11).** npm warns on this version. Post-deadline upgrade pending. No new attack surface for the local MVP scope; upgrade to patched `14.2.x` or `15.x` before any deployment.
+7. **`next@14.2.18` CVE (2025-12-11).** npm warns on this version. Post-deadline upgrade pending. No new attack surface for the local MVP scope; upgrade to patched `14.2.x` or `15.x` before any deployment.
 
-9. **Local Python is 3.14; container uses 3.12-slim.** All Python runs inside the container (via `make`/`docker compose exec`). Local venv not supported — pinning avoids wheel incompatibilities.
+8. **Local Python is 3.14; container uses 3.12-slim.** All Python runs inside the container (via `make`/`docker compose exec`). Local venv not supported — pinning avoids wheel incompatibilities.
 
-10. **`metadata` column renamed to `extra_data`** in `audit_logs`. SQLAlchemy reserves `metadata` on declarative models. Same semantics.
+9. **`metadata` column renamed to `extra_data`** in `audit_logs`. SQLAlchemy reserves `metadata` on declarative models. Same semantics.
 
-11. **Task handlers are I/O-bound only.** CPU-bound handlers block the event loop (documented per spec §8). Process-pool extension deferred.
+10. **Task handlers are I/O-bound only.** CPU-bound handlers block the event loop (documented per spec §8). Process-pool extension deferred.
 
-12. **`pytest_asyncio` deprecation warning** on test runs. Harmless. One-line fix pending in `pyproject.toml`.
+11. **`pytest_asyncio` deprecation warning** on test runs. Harmless. One-line fix pending in `pyproject.toml`.
 
 ---
 
