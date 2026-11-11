@@ -7,12 +7,17 @@ Typed async HTTP client plus a task registry for worker handlers.
 
 ## Install
 
-From a local checkout (the package isn't published to PyPI):
-
 ```bash
-cd sdk
-pip install -e ".[dev]"
+pip install taskforge-sdk
 ```
+
+Or, for development from a local checkout:
+
+'''bash
+git clone https://github.com/Olufemooshegs/taskforge.git
+cd taskforge/sdk
+pip install -e ".[dev]"
+'''
 
 Requires Python 3.10+ (the SDK is pure Python — no compiled dependencies).
 
@@ -192,7 +197,6 @@ Deliberate scope limits for v0.1.0:
 - **Dead-letter replay** — server endpoint (`POST /dead-letters/{id}/replay`) doesn't exist yet. Once added, a `client.replay(...)` method follows.
 - **`POST /jobs/{id}/retry`** — server endpoint doesn't exist yet.
 - **CLI** — no `taskforge submit ...` binary. Would be a thin wrapper around the async client using `typer` or `click`.
-- **PyPI publication** — `pip install taskforge-sdk` doesn't work. Install from a checkout with `pip install -e ./sdk`.
 
 See the main repo's README for the full roadmap.
 

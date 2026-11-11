@@ -67,7 +67,7 @@ First dashboard hit triggers a Next.js dev compile (~8s); subsequent hits are <3
 A typed async client for the HTTP API lives in [`sdk/`](./sdk/README.md).
 
 ```bash
-cd sdk && pip install -e ".[dev]"
+pip install taskforge-sdk
 ```
 
 ```python
@@ -485,7 +485,7 @@ sequenceDiagram
 docker compose exec backend pytest -q
 
 # SDK: 20 tests (independent venv, no live backend needed)
-cd sdk && pip install -e ".[dev]" && pytest -q
+pip install taskforge-sdk && pytest -q
 ```
 
 **Backend** (`backend/tests/unit/`) — 4 files:
@@ -624,7 +624,7 @@ Documented honestly per spec §0 and §20.
 
 11. **`pytest_asyncio` deprecation warning** on test runs. Harmless. One-line fix pending in `pyproject.toml`.
 
-12. **SDK is async-only.** No sync client wrapper. Also missing: batch enqueue, client-side retries, CLI, PyPI publication. See [`sdk/README.md`](./sdk/README.md#whats-not-here-yet).
+12. **SDK is async-only.** No sync client wrapper. Also missing: batch enqueue, client-side retries, CLI. See [`sdk/README.md`](./sdk/README.md#whats-not-here-yet).
 
 ---
 
