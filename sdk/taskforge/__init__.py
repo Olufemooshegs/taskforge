@@ -15,6 +15,8 @@ Quickstart:
         print(final.status)
 """
 
+from importlib.metadata import PackageNotFoundError, version as _pkg_version
+
 from taskforge.client import TaskForgeClient
 from taskforge.exceptions import (
     APIError,
@@ -38,7 +40,13 @@ from taskforge.types import (
     SubmitResponse,
 )
 
-__version__ = "0.1.0"
+try:
+    __version__ = _pkg_version("taskforge-sdk")
+except PackageNotFoundError:
+    # Running from a source checkout that hasn't been pip-installed.
+    # Real installs (pip install taskforge-sdk or pip install -e ./sdk)
+    # always resolve via package metadata.
+    __version__ = "0.0.0+unknown"
 
 __all__ = [
     "__version__",
