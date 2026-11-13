@@ -35,3 +35,7 @@ logs/
 # Local data volumes
 postgres-data/
 redis-data/
+# SDK local dev
+sdk/.venv/
+sdk/*.egg-info/
+sdk/**/__pycache__/
