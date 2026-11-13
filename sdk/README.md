@@ -13,11 +13,11 @@ pip install taskforge-sdk
 
 Or, for development from a local checkout:
 
-'''bash
+```bash
 git clone https://github.com/Olufemooshegs/taskforge.git
 cd taskforge/sdk
 pip install -e ".[dev]"
-'''
+```
 
 Requires Python 3.10+ (the SDK is pure Python — no compiled dependencies).
 
